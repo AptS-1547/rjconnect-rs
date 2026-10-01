@@ -1,0 +1,16 @@
+[package]
+name = "rjconnect-auth"
+description = "Pure authentication state machine for rjconnect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+md5-digest.workspace = true
+rjconnect-eapol = { path = "../rjconnect-eapol" }
+thiserror.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

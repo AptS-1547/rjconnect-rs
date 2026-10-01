@@ -1,0 +1,16 @@
+[package]
+name = "rjconnect-ruijie"
+description = "Bounded codecs for Ruijie private authentication attributes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+rjconnect-eapol = { path = "../rjconnect-eapol" }
+
+[lints]
+workspace = true

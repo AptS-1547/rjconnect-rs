@@ -1,0 +1,48 @@
+[workspace]
+members = [
+    "crates/rjconnect-auth",
+    "crates/rjconnect-eapol",
+    "crates/rjconnect-platform-api",
+    "crates/rjconnect-platform-macos",
+    "crates/rjconnect-ruijie",
+    "crates/rjconnect-wired",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[workspace.dependencies]
+libc = "0.2.189"
+md5-digest = { package = "md-5", version = "0.11.0", default-features = false }
+pcap = "2.5.0"
+thiserror = "2.0.21"
+zeroize = { version = "1.9.0", features = ["derive"] }
+
+[workspace.lints.rust]
+elided_lifetimes_in_paths = "deny"
+explicit_outlives_requirements = "deny"
+unsafe_code = "warn"
+unused_lifetimes = "deny"
+unused_qualifications = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+expect_used = "deny"
+module_name_repetitions = "allow"
+multiple_crate_versions = "allow"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "debuginfo"
