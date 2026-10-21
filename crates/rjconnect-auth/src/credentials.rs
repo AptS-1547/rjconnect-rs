@@ -25,9 +25,17 @@ impl Credentials {
     ///
     /// Returns an error when either field is empty or exceeds its protocol
     /// boundary.
-    pub fn new(identity: Vec<u8>, password: Vec<u8>) -> Result<Self, CredentialError> {
-        validate_length("identity", identity.len(), MAX_IDENTITY_LENGTH)?;
-        validate_length("password", password.len(), MAX_PASSWORD_LENGTH)?;
+    pub fn new(mut identity: Vec<u8>, mut password: Vec<u8>) -> Result<Self, CredentialError> {
+        if let Err(error) = validate_length("identity", identity.len(), MAX_IDENTITY_LENGTH) {
+            identity.zeroize();
+            password.zeroize();
+            return Err(error);
+        }
+        if let Err(error) = validate_length("password", password.len(), MAX_PASSWORD_LENGTH) {
+            identity.zeroize();
+            password.zeroize();
+            return Err(error);
+        }
         Ok(Self { identity, password })
     }
 

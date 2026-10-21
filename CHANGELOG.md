@@ -19,3 +19,11 @@
 ### Security
 
 - **秘密与设备边界** — 凭据离开作用域时清零，`Debug` 始终隐藏密码和 MD5 challenge；协议解析拒绝截断、伪造长度、超限嵌套与不匹配认证结果；无 MAC 的 Tailscale/WireGuard/TUN 接口保持可枚举但不会进入 wired EAPOL，避免旧客户端的空指针崩溃。
+- **认证 effect 脱敏与清零** — `AuthEffect` 的 `Debug` 不再输出 EAP 包内容，出站 EAP 包使用 `Zeroizing`，锐捷 private PAP 响应不会通过常规日志或析构路径留下明文密码。
+
+### Fixed
+
+- **认证状态封闭** — 认证成功后不再接受新的 EAP-Request，避免 `Authenticated` 隐式回退到 `Authenticating`。
+- **有线控制帧长度** — EAPOL-Start 和 EAPOL-Logoff 显式补齐到 60 字节以太网最小帧长；平台发送边界也改为拒绝小于 60 字节的 runt frame，不再依赖驱动自动补齐。
+- **EAP 编码不变量** — 拒绝未知 EAP code 携带 method 字节，拒绝 EAP-MD5 challenge 的多余字节，并拒绝 `encode_eap` 输入中的 EAP trailing 字节。
+- **macOS 接口选择** — `MacosEthernet::open` 只允许 `InterfaceKind::Ethernet`，不会误开 Wi-Fi、Tunnel 或 Loopback。

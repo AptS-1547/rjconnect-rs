@@ -89,6 +89,7 @@ mod tests {
 
         assert_eq!(wifi.kind, InterfaceKind::Wifi);
         assert_eq!(wifi.display_name, "Wi-Fi");
+        assert!(!wifi.supports_wired_eapol());
         Ok(())
     }
 

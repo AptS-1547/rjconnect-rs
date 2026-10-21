@@ -14,7 +14,7 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, PlatformError>;
 
 /// Smallest complete Ethernet II frame without its frame check sequence.
-pub const MIN_ETHERNET_FRAME_LENGTH: usize = 14;
+pub const MIN_ETHERNET_FRAME_LENGTH: usize = 60;
 /// Largest ordinary frame accepted with two VLAN tags and no jumbo support.
 pub const MAX_ETHERNET_FRAME_LENGTH: usize = 1522;
 
@@ -417,5 +417,11 @@ mod tests {
         assert!(interfaces.iter().all(InterfaceInfo::supports_wired_eapol));
         assert_ne!(interfaces[0].id, interfaces[1].id);
         Ok(())
+    }
+
+    #[test]
+    fn minimum_ethernet_frame_length_excludes_fcs() {
+        assert_eq!(MIN_ETHERNET_FRAME_LENGTH, 60);
+        assert_eq!(MAX_ETHERNET_FRAME_LENGTH, 1522);
     }
 }

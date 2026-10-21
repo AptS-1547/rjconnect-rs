@@ -230,7 +230,12 @@ impl<'a> EapPacket<'a> {
                 }
                 0
             }
-            EapCode::Unknown(_) => 0,
+            EapCode::Unknown(code) => {
+                if self.method.is_some() {
+                    return Err(CodecError::UnexpectedEapMethod { code });
+                }
+                0
+            }
         };
         let length = HEADER_LENGTH + method_length + self.payload.len();
         let encoded_length =
@@ -296,6 +301,36 @@ mod tests {
     #[test]
     fn round_trips_unknown_method() -> Result<()> {
         let packet = EapPacket::response(11, EapMethod::Unknown(199), b"extension");
+        let encoded = packet.encode()?;
+
+        assert_eq!(EapPacket::parse(&encoded)?, packet);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_unknown_code_with_method() {
+        let with_method = EapPacket {
+            code: EapCode::Unknown(9),
+            identifier: 1,
+            method: Some(EapMethod::Identity),
+            payload: &[],
+            trailing: &[],
+        };
+        assert_eq!(
+            with_method.encode(),
+            Err(CodecError::UnexpectedEapMethod { code: 9 })
+        );
+    }
+
+    #[test]
+    fn round_trips_unknown_code_payload() -> Result<()> {
+        let packet = EapPacket {
+            code: EapCode::Unknown(9),
+            identifier: 1,
+            method: None,
+            payload: b"data",
+            trailing: &[],
+        };
         let encoded = packet.encode()?;
 
         assert_eq!(EapPacket::parse(&encoded)?, packet);

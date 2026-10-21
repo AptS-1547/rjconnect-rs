@@ -23,6 +23,13 @@ use thiserror::Error;
 /// Maximum Ethernet payload without jumbo-frame negotiation.
 pub const MAX_ETHERNET_PAYLOAD_LENGTH: usize = 1500;
 
+const ETHERNET_HEADER_LENGTH: usize = 14;
+/// Minimum Ethernet II frame length without the frame check sequence.
+///
+/// Control packets such as EAPOL-Start and EAPOL-Logoff are shorter than this
+/// boundary and must be padded explicitly rather than relying on a driver.
+pub const MIN_ETHERNET_FRAME_LENGTH_WITHOUT_FCS: usize = 60;
+
 /// Result returned by wired frame codecs.
 pub type Result<T> = std::result::Result<T, WiredFrameError>;
 
@@ -176,7 +183,12 @@ impl WiredFrameEncoder {
     /// Returns an error if the final Ethernet payload exceeds 1,500 bytes or
     /// the configured Ethernet envelope is invalid.
     pub fn encode_eap(&self, eap_packet: &[u8], ruijie_trailer: &[u8]) -> Result<Vec<u8>> {
-        EapPacket::parse(eap_packet)?;
+        let packet = EapPacket::parse(eap_packet)?;
+        if !packet.trailing.is_empty() {
+            return Err(WiredFrameError::UnexpectedEapTrailing {
+                length: packet.trailing.len(),
+            });
+        }
         self.encode(EapolPacketType::EapPacket, eap_packet, ruijie_trailer)
     }
 
@@ -203,12 +215,18 @@ impl WiredFrameEncoder {
             });
         }
 
+        let minimum_payload_length = MIN_ETHERNET_FRAME_LENGTH_WITHOUT_FCS
+            .saturating_sub(ETHERNET_HEADER_LENGTH + self.vlan_tags.len() * 4);
+        let ethernet_payload_length = eapol.len().max(minimum_payload_length);
+        let mut tuned_eapol = eapol;
+        tuned_eapol.resize(ethernet_payload_length, 0);
+
         EthernetFrame {
             destination: self.destination,
             source: self.source,
             vlan_tags: self.vlan_tags.clone(),
             ether_type: ETHERTYPE_EAPOL,
-            payload: &eapol,
+            payload: &tuned_eapol,
         }
         .encode()
         .map_err(Into::into)
@@ -246,6 +264,12 @@ pub enum WiredFrameError {
     /// Wired Ruijie trailer failed structural validation.
     #[error(transparent)]
     RuijieTrailer(#[from] WiredVendorTrailerError),
+    /// EAP input carried bytes outside its declared packet length.
+    #[error("EAP packet carries {length} trailing bytes outside its declared length")]
+    UnexpectedEapTrailing {
+        /// Trailing byte count.
+        length: usize,
+    },
 }
 
 #[cfg(test)]
@@ -282,9 +306,22 @@ mod tests {
         let frame = InboundWiredFrame::parse(&wire)?;
 
         assert_eq!(frame.eapol.packet_type, EapolPacketType::Start);
-        assert!(frame.eapol.payload.is_empty());
-        assert!(frame.eapol.trailing.is_empty());
+        assert_eq!(frame.eapol.payload, []);
+        assert_eq!(frame.eapol.trailing, [0; 42]);
+        assert_eq!(wire.len(), MIN_ETHERNET_FRAME_LENGTH_WITHOUT_FCS);
         assert!(frame.eap.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn logoff_is_padded_to_minimum_ethernet_frame_length() -> TestResult {
+        let wire = encoder().encode_logoff(&[])?;
+
+        assert_eq!(wire.len(), MIN_ETHERNET_FRAME_LENGTH_WITHOUT_FCS);
+        let frame = InboundWiredFrame::parse(&wire)?;
+        assert_eq!(frame.eapol.packet_type, EapolPacketType::Logoff);
+        assert_eq!(frame.eapol.payload, []);
+        assert_eq!(frame.eapol.trailing, [0; 42]);
         Ok(())
     }
 
@@ -312,6 +349,18 @@ mod tests {
         assert_eq!(attribute.kind, AttributeKind::OS_BITS);
         assert_eq!(attribute.value, [64]);
         assert_eq!(attributes.next(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_eap_input_with_trailing_bytes() -> TestResult {
+        let mut eap = EapPacket::response(9, EapMethod::Identity, b"student").encode()?;
+        eap.extend_from_slice(&[0, 0]);
+
+        assert_eq!(
+            encoder().encode_eap(&eap, &[]),
+            Err(WiredFrameError::UnexpectedEapTrailing { length: 2 })
+        );
         Ok(())
     }
 

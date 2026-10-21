@@ -8,7 +8,7 @@ use std::{collections::HashMap, ffi::CStr, mem::offset_of, ptr, slice};
 use pcap::{Active, Capture, Device, Error as PcapError, IfFlags, Linktype};
 use rjconnect_eapol::MacAddress;
 use rjconnect_platform_api::{
-    EthernetLink, FrameChannel, FrameChannelConfig, InterfaceId, InterfaceInfo,
+    EthernetLink, FrameChannel, FrameChannelConfig, InterfaceId, InterfaceInfo, InterfaceKind,
     MAX_ETHERNET_FRAME_LENGTH, MIN_ETHERNET_FRAME_LENGTH, PlatformError, ReceiveOutcome, Result,
 };
 
@@ -50,6 +50,7 @@ impl EthernetLink for MacosEthernet {
     }
 
     fn open(&self, interface: &InterfaceId, config: &FrameChannelConfig) -> Result<Self::Channel> {
+        let mac_addresses = mac_addresses()?;
         let device = Device::list()
             .map_err(|error| map_pcap_error("enumerate interfaces", &error))?
             .into_iter()
@@ -57,6 +58,19 @@ impl EthernetLink for MacosEthernet {
             .ok_or_else(|| PlatformError::InterfaceUnavailable {
                 interface: interface.as_str().to_owned(),
             })?;
+        let interface_info = normalize(DeviceSnapshot {
+            mac_address: mac_addresses.get(&device.name).copied(),
+            name: device.name.clone(),
+            description: device.desc.clone(),
+            is_loopback: device.flags.is_loopback(),
+            is_wireless: device.flags.is_wireless(),
+            is_up: device.flags.is_up() && device.flags.is_running(),
+        })?;
+        if interface_info.kind != InterfaceKind::Ethernet || interface_info.mac_address.is_none() {
+            return Err(PlatformError::UnsupportedCapability {
+                capability: "non-Ethernet wired interface",
+            });
+        }
         let snapshot_length = i32::try_from(config.snapshot_length()).map_err(|_error| {
             PlatformError::InvalidSnapshotLength {
                 actual: config.snapshot_length(),

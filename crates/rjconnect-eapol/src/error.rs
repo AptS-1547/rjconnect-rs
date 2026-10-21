@@ -41,6 +41,13 @@ pub enum CodecError {
     #[error("EAP request/response packet is missing the method byte")]
     MissingEapMethod,
 
+    /// An unknown EAP code carried a method byte that cannot be represented.
+    #[error("unknown EAP code 0x{code:02x} must not carry a method byte")]
+    UnexpectedEapMethod {
+        /// Raw unknown EAP code.
+        code: u8,
+    },
+
     /// A terminal EAP packet carried bytes that are forbidden by RFC 3748.
     #[error("EAP success/failure packet must have a declared length of 4, got {length}")]
     InvalidTerminalEapLength {

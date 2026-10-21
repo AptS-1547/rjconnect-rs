@@ -2,6 +2,7 @@ use std::{fmt, time::Duration};
 
 use rjconnect_eapol::{EapCode, EapMethod, EapPacket};
 use thiserror::Error;
+use zeroize::Zeroizing;
 
 use crate::{Credentials, md5_response};
 
@@ -25,7 +26,8 @@ pub enum AuthState {
     AwaitingRequest,
     /// At least one method response has been emitted.
     Authenticating,
-    /// EAP-Success was received.
+    /// EAP-Success was received. The machine rejects new EAP requests and
+    /// ignores duplicate results until it is explicitly stopped.
     Authenticated,
     /// The session is waiting before a retry.
     Held,
@@ -181,14 +183,14 @@ pub enum FailureReason {
 }
 
 /// Side effect returned for execution by the runtime.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum AuthEffect {
     /// Send an EAPOL-Start packet.
     SendStart,
     /// Send an encoded EAP packet inside EAPOL.
     SendEap {
-        /// Complete encoded EAP packet.
-        packet: Vec<u8>,
+        /// Complete encoded EAP packet, zeroized when the effect is dropped.
+        packet: Zeroizing<Vec<u8>>,
         /// Semantic request context for vendor-trailer construction.
         context: RequestContext,
     },
@@ -217,6 +219,37 @@ pub enum AuthEffect {
         /// Optional terminal failure category.
         reason: Option<FailureReason>,
     },
+}
+
+impl fmt::Debug for AuthEffect {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SendStart => formatter.write_str("SendStart"),
+            Self::SendEap { packet, context } => formatter
+                .debug_struct("SendEap")
+                .field("packet", &"<redacted>")
+                .field("packet_length", &packet.len())
+                .field("context", context)
+                .finish(),
+            Self::SendLogoff => formatter.write_str("SendLogoff"),
+            Self::ArmTimer { kind, duration } => formatter
+                .debug_struct("ArmTimer")
+                .field("kind", kind)
+                .field("duration", duration)
+                .finish(),
+            Self::CancelTimer(kind) => formatter.debug_tuple("CancelTimer").field(kind).finish(),
+            Self::Authenticated => formatter.write_str("Authenticated"),
+            Self::Failed { reason, will_retry } => formatter
+                .debug_struct("Failed")
+                .field("reason", reason)
+                .field("will_retry", will_retry)
+                .finish(),
+            Self::Terminated { reason } => formatter
+                .debug_struct("Terminated")
+                .field("reason", reason)
+                .finish(),
+        }
+    }
 }
 
 /// Error returned for malformed method payloads or invalid runtime events.
@@ -328,8 +361,17 @@ impl AuthMachine {
         }
 
         match packet.code {
+            EapCode::Request if self.state == AuthState::Authenticated => {
+                Err(AuthError::InvalidEvent {
+                    event: "EAP request after authentication",
+                    state: self.state,
+                })
+            }
             EapCode::Request => self.handle_request(packet),
             EapCode::Success => {
+                if self.state == AuthState::Authenticated {
+                    return Ok(Vec::new());
+                }
                 self.validate_result_identifier(packet.identifier)?;
                 self.last_identifier = Some(packet.identifier);
                 self.state = AuthState::Authenticated;
@@ -340,6 +382,9 @@ impl AuthMachine {
                 ])
             }
             EapCode::Failure => {
+                if self.state == AuthState::Authenticated {
+                    return Ok(Vec::new());
+                }
                 self.validate_result_identifier(packet.identifier)?;
                 Ok(self.enter_held(FailureReason::Rejected))
             }
@@ -416,24 +461,29 @@ impl AuthMachine {
         ])
     }
 
-    fn md5_response(&self, identifier: u8, challenge: &Md5Challenge) -> Result<Vec<u8>, AuthError> {
+    fn md5_response(
+        &self,
+        identifier: u8,
+        challenge: &Md5Challenge,
+    ) -> Result<Zeroizing<Vec<u8>>, AuthError> {
         let digest = md5_response::calculate(
             identifier,
             self.credentials.password(),
             challenge.as_bytes(),
         );
-        let mut response_payload =
-            Vec::with_capacity(1 + digest.len() + self.credentials.identity().len());
+        let mut response_payload = Zeroizing::new(Vec::with_capacity(
+            1 + digest.len() + self.credentials.identity().len(),
+        ));
         response_payload.push(md5_response::MD5_CHALLENGE_LENGTH_WIRE);
         response_payload.extend_from_slice(&digest);
         response_payload.extend_from_slice(self.credentials.identity());
         encode_response(identifier, EapMethod::Md5Challenge, &response_payload)
     }
 
-    fn private_pap_payload(&self) -> Result<Vec<u8>, AuthError> {
-        let mut payload = Vec::with_capacity(
+    fn private_pap_payload(&self) -> Result<Zeroizing<Vec<u8>>, AuthError> {
+        let mut payload = Zeroizing::new(Vec::with_capacity(
             1 + self.credentials.password().len() + self.credentials.identity().len(),
-        );
+        ));
         let password_length = u8::try_from(self.credentials.password().len())
             .map_err(|_error| AuthError::CredentialLengthInvariant)?;
         payload.push(password_length);
@@ -523,11 +573,12 @@ fn parse_md5_challenge(payload: &[u8]) -> Result<Md5Challenge, AuthError> {
             actual: declared_length,
         });
     }
-    let Some(challenge) = remainder.get(..md5_response::MD5_CHALLENGE_LENGTH) else {
+    if remainder.len() != md5_response::MD5_CHALLENGE_LENGTH {
         return Err(AuthError::InvalidMd5ChallengeLength {
             actual: remainder.len(),
         });
-    };
+    }
+    let challenge = remainder;
     let mut bytes = [0; md5_response::MD5_CHALLENGE_LENGTH];
     bytes.copy_from_slice(challenge);
     Ok(Md5Challenge(bytes))
@@ -537,9 +588,10 @@ fn encode_response(
     identifier: u8,
     method: EapMethod,
     payload: &[u8],
-) -> Result<Vec<u8>, AuthError> {
+) -> Result<Zeroizing<Vec<u8>>, AuthError> {
     EapPacket::response(identifier, method, payload)
         .encode()
+        .map(Zeroizing::new)
         .map_err(|error| AuthError::Codec(error.to_string()))
 }
 
@@ -676,6 +728,27 @@ mod tests {
     }
 
     #[test]
+    fn md5_challenge_rejects_trailing_bytes() -> Result<(), Box<dyn Error>> {
+        let mut machine = machine()?;
+        machine.handle(AuthEvent::Start)?;
+        let mut payload = vec![16];
+        payload.extend(0_u8..16);
+        payload.push(0xff);
+
+        assert_eq!(
+            machine.handle(AuthEvent::Eap(IncomingEap {
+                code: EapCode::Request,
+                identifier: 1,
+                method: Some(EapMethod::Md5Challenge),
+                payload,
+            })),
+            Err(AuthError::InvalidMd5ChallengeLength { actual: 17 })
+        );
+        assert_eq!(machine.state(), AuthState::AwaitingRequest);
+        Ok(())
+    }
+
+    #[test]
     fn private_request_encodes_length_password_and_identity() -> Result<(), Box<dyn Error>> {
         let mut machine = machine()?;
         machine.handle(AuthEvent::Start)?;
@@ -694,6 +767,23 @@ mod tests {
         assert_eq!(&packet.payload[1..7], b"secret");
         assert_eq!(&packet.payload[7..], b"student");
         assert_eq!(*context, RequestContext::RuijiePrivate);
+        Ok(())
+    }
+
+    #[test]
+    fn private_response_debug_redacts_secret_packet() -> Result<(), Box<dyn Error>> {
+        let mut machine = machine()?;
+        machine.handle(AuthEvent::Start)?;
+        let effects = request(&mut machine, 5, EapMethod::RuijiePrivate, Vec::new())?;
+        let outbound = effects
+            .iter()
+            .find(|effect| matches!(effect, AuthEffect::SendEap { .. }))
+            .ok_or("missing private EAP response")?;
+        let rendered = format!("{outbound:?}");
+
+        assert!(!rendered.contains("secret"));
+        assert!(!rendered.contains("student"));
+        assert!(rendered.contains("<redacted>"));
         Ok(())
     }
 
@@ -753,6 +843,54 @@ mod tests {
                 AuthEffect::CancelTimer(TimerKind::Authentication),
                 AuthEffect::Authenticated,
             ]
+        );
+        assert_eq!(machine.state(), AuthState::Authenticated);
+        Ok(())
+    }
+
+    #[test]
+    fn authenticated_state_rejects_further_eap_requests() -> Result<(), Box<dyn Error>> {
+        let mut machine = machine()?;
+        machine.handle(AuthEvent::Start)?;
+        request(&mut machine, 9, EapMethod::Identity, Vec::new())?;
+        machine.handle(AuthEvent::Eap(IncomingEap {
+            code: EapCode::Success,
+            identifier: 9,
+            method: None,
+            payload: Vec::new(),
+        }))?;
+
+        assert_eq!(
+            request(&mut machine, 10, EapMethod::Identity, Vec::new()),
+            Err(AuthError::InvalidEvent {
+                event: "EAP request after authentication",
+                state: AuthState::Authenticated,
+            })
+        );
+        assert_eq!(machine.state(), AuthState::Authenticated);
+        Ok(())
+    }
+
+    #[test]
+    fn authenticated_state_ignores_duplicate_results() -> Result<(), Box<dyn Error>> {
+        let mut machine = machine()?;
+        machine.handle(AuthEvent::Start)?;
+        request(&mut machine, 9, EapMethod::Identity, Vec::new())?;
+        machine.handle(AuthEvent::Eap(IncomingEap {
+            code: EapCode::Success,
+            identifier: 9,
+            method: None,
+            payload: Vec::new(),
+        }))?;
+
+        assert_eq!(
+            machine.handle(AuthEvent::Eap(IncomingEap {
+                code: EapCode::Success,
+                identifier: 9,
+                method: None,
+                payload: Vec::new(),
+            }))?,
+            []
         );
         assert_eq!(machine.state(), AuthState::Authenticated);
         Ok(())

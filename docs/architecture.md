@@ -15,8 +15,7 @@
 ```text
 上层消费者与可嵌入 runtime
   ├─ rjconnect-auth
-  │    ├─ rjconnect-eapol
-  │    └─ rjconnect-ruijie
+  │    └─ rjconnect-eapol
   ├─ rjconnect-wired
   │    ├─ rjconnect-eapol
   │    └─ rjconnect-ruijie
