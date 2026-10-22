@@ -38,4 +38,4 @@ MD5 不是一般安全哈希；这里只作为网络协议互操作原语，不�
 
 `wl-nl80211` 的同组织底层依赖 `netlink-packet-generic` 与 `genetlink` 分别约 171 万和 94 万下载。若高层 API 无法满足关联、受控端口或密钥安装，优先在隔离的 Linux 平台 crate 中直接使用成熟的 rust-netlink 底层，而不是污染协议核心。
 
-`pcap` 当前只在 macOS target dependency 中启用。Windows 后续接入前仍须验证 Npcap SDK 链接、驱动分发许可和 CI 镜像；Linux 是否采用 libpcap 或 AF_PACKET 由 Linux 平台 crate 独立决定。
+`pcap` 当前只在 macOS target dependency 中启用。Windows 后续接入前仍须验证 Npcap SDK 链接、驱动分发许可和 CI 镜像。Linux wired adapter 已选择 AF_PACKET，只使用 target-specific `libc`，不引入 libpcap 开发包或系统库。

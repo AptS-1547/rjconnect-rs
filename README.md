@@ -22,10 +22,11 @@
 | `rjconnect-ruijie` | 锐捷私有 TLV 的有界编解码 |
 | `rjconnect-auth` | 纯认证状态机与 EAP-MD5 challenge-response |
 | `rjconnect-platform-api` | 平台设备与系统网络能力契约 |
-| `rjconnect-platform-macos` | macOS BPF/libpcap Ethernet backend |
+| `rjconnect-platform-macos` | macOS BPF/libpcap Ethernet adapter |
+| `rjconnect-platform-linux` | Linux AF_PACKET wired Ethernet adapter |
 | `rjconnect-wired` | 有线 Ethernet/EAPOL 帧边界与锐捷 trailer |
 
-平台实现、Linux 无线、PEAP/TLS/MSCHAPv2 与应用入口将在这些稳定边界上直接实现，不建立薄转发层。
+Linux 无线、PEAP/TLS/MSCHAPv2 与其余平台实现将在这些稳定边界上直接实现，不建立薄转发层。
 
 ## 工程门槛
 
@@ -46,3 +47,5 @@ cargo machete
 - [ADR-0001：平台 crate 与 native 边界](docs/adr/0001-platform-crate-boundary.md)
 - [ADR-0002：底层库 workspace](docs/adr/0002-library-only-scope.md)
 - [ADR-0003：接口选择，不做多网卡阻断](docs/adr/0003-interface-selection-not-enforcement.md)
+- [ADR-0004：Linux wired capture 使用 AF_PACKET](docs/adr/0004-linux-wired-capture-uses-af-packet.md)
+- [领域词汇](GLOSSARY.md)

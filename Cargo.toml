@@ -3,6 +3,7 @@ members = [
     "crates/rjconnect-auth",
     "crates/rjconnect-eapol",
     "crates/rjconnect-platform-api",
+    "crates/rjconnect-platform-linux",
     "crates/rjconnect-platform-macos",
     "crates/rjconnect-ruijie",
     "crates/rjconnect-wired",

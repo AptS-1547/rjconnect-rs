@@ -23,7 +23,7 @@
   └─ rjconnect-platform-api
         ├─ Windows Ethernet 实现
         ├─ macOS Ethernet 实现
-        └─ Linux Ethernet/Wi-Fi 实现
+        └─ Linux wired Ethernet 实现
 ```
 
 `rjconnect-auth` 不能依赖任何平台实现。平台 crate 也不能重写认证状态，只执行核心产生的 effect。
@@ -61,6 +61,8 @@ crates/
 - native 回调只复制有界输入并提交任务，不在回调线程执行认证、DHCP 或其他长任务。
 
 详细决策见 [ADR-0001](adr/0001-platform-crate-boundary.md)。
+
+当前 `rjconnect-platform-linux` 只提供 wired Ethernet adapter。Linux Wi-Fi、nl80211 与系统网络配置仍属于后续模块；设备枚举、接口分类、AF_PACKET 生命周期和 EAPOL 帧收发由该 crate 自己拥有。
 
 ## 产品接入边界
 

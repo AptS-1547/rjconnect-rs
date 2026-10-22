@@ -12,6 +12,7 @@
 - **有线帧边界** — 提供完整 Ethernet/EAPOL/EAP 帧组合与解析，显式支持经过验证的锐捷 vendor trailer，并限制普通 Ethernet payload 不超过 1,500 字节。
 - **平台能力契约** — 定义不泄漏 OS 句柄的网卡、原始帧和系统网络参数接口，为 Windows、macOS 与 Linux 独立平台 crate 建立稳定边界。
 - **macOS Ethernet backend** — 使用 libpcap/BPF 枚举网卡、读取 AF_LINK MAC、过滤 EAPOL、执行有界超时接收和完整帧发送；无 MAC 的 tunnel 接口保持可枚举而不会被错误解引用。
+- **Linux wired Ethernet adapter** — 使用 AF_PACKET 枚举实体 Ethernet、读取 `sockaddr_ll` MAC、过滤 untagged/单层/双层 VLAN EAPOL，执行有界超时接收、promiscuous membership 和完整帧发送；同时按 sysfs 与 Ralink/MediaTek 接口名前缀排除 Wi-Fi，loopback 自源帧不会回送给认证层。
 - **Library-only workspace** — 当前仓库只交付可嵌入底层 crate，不提供 CLI、TUI、GUI、自更新程序或产品交互层。
 - **接口选择模型** — 平台层枚举全部接口，会话只绑定调用者选择的接口；多个网口、Wi-Fi、bridge、Tailscale、WireGuard 或 TUN 同时存在不会触发认证阻断。
 - **工程治理** — 建立集中 lint、三平台 CI、依赖准入记录、RustSec 审计、未使用依赖检查以及平台/native 与 library-only ADR。
